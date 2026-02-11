@@ -1,0 +1,15 @@
+name: ECR Retag
+description: Retag an image in ECR
+inputs:
+  repository:
+    description: ECR repository name
+    required: true
+  tag:
+    description: Existing tag. For example `1.2.3`
+    required: true
+  newTag:
+    description: New tag. For example `ken-test-1.2.3`
+    required: true
+runs:
+  using: "node24"
+  main: "dist/index.js"
