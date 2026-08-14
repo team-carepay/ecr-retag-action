@@ -46935,7 +46935,7 @@ function isImageAlreadyExists(error) {
 }
 async function run() {
     try {
-        core.info(`Starting ECR retag actioon`);
+        core.info(`Starting ECR retag action`);
         const repository = core.getInput("repository");
         const tag = core.getInput("tag");
         const newTag = core.getInput("newTag");

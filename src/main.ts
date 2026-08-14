@@ -15,7 +15,7 @@ export function isImageAlreadyExists(error: unknown): boolean {
 
 export async function run(): Promise<void> {
   try {
-    core.info(`Starting ECR retag actioon`);
+    core.info(`Starting ECR retag action`);
     const repository: string = core.getInput("repository");
     const tag: string = core.getInput("tag");
     const newTag: string = core.getInput("newTag");

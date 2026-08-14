@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    # Releasing moves the v<MAJOR> alias every consumer resolves at deploy time, so it may
+    # only ever run on main — dispatching from a branch would ship an unmerged commit.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -44,6 +47,12 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          # Belt and braces: the job-level `if` gates the ref, this catches a released
+          # commit that is somehow not on main (e.g. the branch moved mid-run).
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::HEAD is not on origin/main — refusing to tag"
+            exit 1
+          fi
           case "$VERSION" in
             v*) echo "::error::give the version without the leading v (e.g. 1.1.0)"; exit 1 ;;
           esac
