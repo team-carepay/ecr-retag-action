@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx jest
+
+      # dist/ is committed and is what the action actually runs, so a source change with a
+      # forgotten rebuild would merge and change nothing. Rebuild and fail on any difference.
+      - name: Verify dist is up to date
+        run: |
+          npx ncc build src/index.ts -o dist --source-map --license licenses.txt
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/ is stale — run 'npm run package' and commit the result"
+            git diff --stat -- dist
+            exit 1
+          fi

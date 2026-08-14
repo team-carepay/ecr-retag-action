@@ -1,0 +1,75 @@
+name: Release
+
+# Cuts an immutable version tag (v1.2.3) and moves the major alias (v1) onto the same
+# commit. Consumers pin `team-carepay/ecr-retag-action@v1`, so moving the alias is what
+# actually ships the change to them; the version tag is what you can roll back to.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, without the leading v (e.g. 1.1.0)
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx jest
+
+      - name: Verify dist is up to date
+        run: |
+          npx ncc build src/index.ts -o dist --source-map --license licenses.txt
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/ is stale — run 'npm run package' and commit the result"
+            exit 1
+          fi
+
+      - name: Tag and move the major alias
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          case "$VERSION" in
+            v*) echo "::error::give the version without the leading v (e.g. 1.1.0)"; exit 1 ;;
+          esac
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version must be MAJOR.MINOR.PATCH, got '$VERSION'"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::tag v$VERSION already exists — pick a new version"
+            exit 1
+          fi
+
+          MAJOR="${VERSION%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+          # The alias is force-moved on purpose: every consumer on @v<MAJOR> picks this up.
+          git tag -f "v$MAJOR" "v$VERSION"
+          git push -f origin "v$MAJOR"
+          echo "released v$VERSION; v$MAJOR now points at $(git rev-parse --short HEAD)"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release create "v$VERSION" --generate-notes --title "v$VERSION"
