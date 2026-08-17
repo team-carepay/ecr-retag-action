@@ -46923,12 +46923,19 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isImageAlreadyExists = isImageAlreadyExists;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(7484));
 const client_ecr_1 = __nccwpck_require__(8249);
+// Same manifest, same tag: ECR reports it as an error, but nothing needs doing.
+// A tag that exists on a DIFFERENT image raises ImageTagAlreadyExistsException instead
+// (immutable repositories) and must keep failing — that is a genuine conflict.
+function isImageAlreadyExists(error) {
+    return error instanceof Error && error.name === "ImageAlreadyExistsException";
+}
 async function run() {
     try {
-        core.info(`Starting ECR retag actioon`);
+        core.info(`Starting ECR retag action`);
         const repository = core.getInput("repository");
         const tag = core.getInput("tag");
         const newTag = core.getInput("newTag");
@@ -46949,8 +46956,22 @@ async function run() {
             imageManifest: getResponse.images[0].imageManifest,
             imageTag: newTag,
         });
-        await ecr.send(putCommand);
-        core.info(`Successfully tagged image ${tag} with ${newTag} in repository ${repository}`);
+        try {
+            await ecr.send(putCommand);
+            core.info(`Successfully tagged image ${tag} with ${newTag} in repository ${repository}`);
+        }
+        catch (error) {
+            // ECR raises ImageAlreadyExistsException when this exact manifest already carries
+            // newTag, i.e. the retag we are about to make has already been made. Re-running a
+            // deploy is then a no-op, not a failure — failing here would leave the caller unable
+            // to retry the steps that come after the retag.
+            if (isImageAlreadyExists(error)) {
+                core.info(`Image ${tag} already tagged ${newTag} in repository ${repository}, nothing to do`);
+            }
+            else {
+                throw error;
+            }
+        }
     }
     catch (error) {
         if (error instanceof Error) {

@@ -6,9 +6,16 @@ import {
   PutImageCommand,
 } from "@aws-sdk/client-ecr";
 
+// Same manifest, same tag: ECR reports it as an error, but nothing needs doing.
+// A tag that exists on a DIFFERENT image raises ImageTagAlreadyExistsException instead
+// (immutable repositories) and must keep failing — that is a genuine conflict.
+export function isImageAlreadyExists(error: unknown): boolean {
+  return error instanceof Error && error.name === "ImageAlreadyExistsException";
+}
+
 export async function run(): Promise<void> {
   try {
-    core.info(`Starting ECR retag actioon`);
+    core.info(`Starting ECR retag action`);
     const repository: string = core.getInput("repository");
     const tag: string = core.getInput("tag");
     const newTag: string = core.getInput("newTag");
@@ -37,10 +44,24 @@ export async function run(): Promise<void> {
       imageTag: newTag,
     });
 
-    await ecr.send(putCommand);
-    core.info(
-      `Successfully tagged image ${tag} with ${newTag} in repository ${repository}`,
-    );
+    try {
+      await ecr.send(putCommand);
+      core.info(
+        `Successfully tagged image ${tag} with ${newTag} in repository ${repository}`,
+      );
+    } catch (error) {
+      // ECR raises ImageAlreadyExistsException when this exact manifest already carries
+      // newTag, i.e. the retag we are about to make has already been made. Re-running a
+      // deploy is then a no-op, not a failure — failing here would leave the caller unable
+      // to retry the steps that come after the retag.
+      if (isImageAlreadyExists(error)) {
+        core.info(
+          `Image ${tag} already tagged ${newTag} in repository ${repository}, nothing to do`,
+        );
+      } else {
+        throw error;
+      }
+    }
   } catch (error) {
     if (error instanceof Error) {
       core.setFailed(`Failed to tag ECR image: ${error.message}`);
